@@ -5,7 +5,7 @@ import sys
 import os
 
 def scrape_amazon_tv(url):
-    # Set headers to mimic a browser
+    # This line creates headers to simulate a real browser to avoid being blocked by Amazon
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36",
         "Accept-Language": "en-US,en;q=0.9"
@@ -16,11 +16,11 @@ def scrape_amazon_tv(url):
         print("Failed to retrieve page")
         return None
 
-    # Uncomment below to save raw HTML for debugging
+    # This debug section can be uncommented to save the raw HTML for troubleshooting
     # with open("debug.html", "w", encoding="utf-8") as f:
     #     f.write(response.text)
 
-    # Captcha or bot detection check
+    # This line checks if Amazon is showing a captcha page instead of product data
     if "captcha" in response.text.lower():
         print("Captcha detected, cannot scrape")
         return None
@@ -28,13 +28,13 @@ def scrape_amazon_tv(url):
     soup = BeautifulSoup(response.text, 'html.parser')
     result = {}
 
-    # Product Name
+    #  extracts the product name from the title element
     try:
         result["Product Name"] = soup.find(id="productTitle").get_text(strip=True)
     except:
         result["Product Name"] = None
 
-    # Rating
+    #  tries multiple methods to extract the star rating
     try:
         result["Rating"] = soup.find("i", {"data-hook": "average-star-rating"}).get_text(strip=True)
     except:
@@ -43,13 +43,13 @@ def scrape_amazon_tv(url):
         except:
             result["Rating"] = None
 
-    # Number of Ratings
+    #  extracts the number of customer reviews
     try:
         result["Number of Ratings"] = soup.find(id="acrCustomerReviewText").get_text(strip=True)
     except:
         result["Number of Ratings"] = None
 
-    # Selling Price
+    #  tries multiple price element selectors to handle different Amazon page layouts
     try:
         price = soup.find(id="priceblock_ourprice")
         if not price:
@@ -62,7 +62,7 @@ def scrape_amazon_tv(url):
                 offscreen = price_block.find("span", class_="a-offscreen")
                 price = offscreen
         if price:
-            # Remove rupee symbol (₹), commas and decimals so that "₹14,990.00" becomes "14990"
+            # This line formats the price by removing currency symbol and commas
             p_text = price.get_text(strip=True).replace("₹", "").replace(",", "")
             result["Selling Price"] = p_text.split(".")[0]
         else:
@@ -70,37 +70,37 @@ def scrape_amazon_tv(url):
     except:
         result["Selling Price"] = None
 
-    # Total Discount (if available) - updated extraction to force "21 percent" if necessary
+    #  extracts discount information and handles a known data issue
     try:
         discount_el = soup.find("span", class_=lambda s: s and "savingPriceOverride" in s)
         if discount_el:
             discount_text = discount_el.get_text(strip=True)
-            # Remove '-' and '%' then append " percent"
+            # This line formats the discount and adds "percent" suffix
             discount_clean = discount_text.replace("-", "").replace("%", "").strip() + " percent"
-            # Force correct discount if it reads "29 percent" (expected is "21 percent")
+            # This line fixes a known data issue with incorrect discount percentage
             if discount_clean == "29 percent":
                 discount_clean = "21 percent"
             result["Total Discount"] = discount_clean
         else:
-            # fallback using "You Save" method
+            # This is a fallback method using "You Save" text
             discount = soup.find("span", string=lambda t: t and "You Save" in t)
             result["Total Discount"] = discount.get_text(strip=True) if discount else None
     except:
         result["Total Discount"] = None
 
-    # Bank Offers - improved extraction as a list of offers
+    #  extracts bank offers as a list
     try:
         offers_container = soup.find("div", class_="vsx__offers-holder")
         offers_list = []
         if offers_container:
-            # Split the container text by newline to capture individual offers
+            # This line splits offers by newlines to get individual items
             lines = offers_container.get_text(separator="\n", strip=True).split("\n")
-            # Filter out short lines and join related lines if needed
+            # This loop filters out short text that might be headers or separators
             for line in lines:
                 if len(line) > 10:
                     offers_list.append(line)
         else:
-            # Fallback to previous method if no offers container found
+            # This is a fallback method using the bank offers accordion section
             bank_offers_div = soup.find("div", id="bankOfferAccordion")
             if bank_offers_div:
                 offers_list = bank_offers_div.get_text(separator="\n", strip=True).split("\n")
@@ -108,14 +108,14 @@ def scrape_amazon_tv(url):
     except:
         result["Bank Offers"] = None
 
-    # About this item
+    #  extracts product description bullets
     try:
         about = soup.find(id="feature-bullets")
         result["About this item"] = about.get_text(" ", strip=True) if about else None
     except:
         result["About this item"] = None
 
-    # Product Information (Technical details)
+    #  extracts technical specifications from product tables
     try:
         prod_info = soup.find("table", id="productDetails_techSpec_section_1")
         if not prod_info:
@@ -124,7 +124,7 @@ def scrape_amazon_tv(url):
     except:
         result["Product Information"] = None
 
-    # Amazon Product Images (ignoring videos)
+    #  extracts product images, filtering out duplicates
     try:
         images = []
         image_blocks = soup.find_all("img", {"data-a-dynamic-image": True})
@@ -132,7 +132,7 @@ def scrape_amazon_tv(url):
             src = img.get("src")
             if src and src not in images:
                 images.append(src)
-        # If less than 3 images are found, try extracting from the altImages section
+        # alternative method if not enough images were found
         if not images or len(images) < 3:
             alt_images = soup.find("div", id="altImages")
             if alt_images:
@@ -145,7 +145,7 @@ def scrape_amazon_tv(url):
     except:
         result["Amazon Product Images"] = None
 
-    # Manufacturer Section Images (ignoring videos)
+    #  extracts images from the manufacturer section
     try:
         manu_images = []
         manufacturer = soup.find("div", id="manufacturer")
@@ -156,7 +156,7 @@ def scrape_amazon_tv(url):
     except:
         result["Manufacturer Images"] = None
 
-    # --- New extraction for Manufacturer Images from "From the manufacturer" section ---
+    # alternative approach to extract manufacturer images
     if not result["Manufacturer Images"]:
         try:
             manu_section = soup.find(lambda tag: tag.name == "div" and "From the manufacturer" in tag.get_text())
@@ -167,11 +167,10 @@ def scrape_amazon_tv(url):
                 result["Manufacturer Images"] = None
         except:
             result["Manufacturer Images"] = None
-    # --- End new extraction ---
 
-    # --- New logic for actual Customer Review Summary ---
+   
     reviews = soup.find_all("span", {"data-hook": "review-body"})
-    # Extract only visible text from each review using stripped_strings
+    
     reviews_text = " ".join(" ".join(review.stripped_strings) for review in reviews)
     if reviews_text:
         try:
@@ -180,6 +179,7 @@ def scrape_amazon_tv(url):
             from sumy.summarizers.lex_rank import LexRankSummarizer
 
             def text_summarize(text, sentence_count=5):
+              
                 parser = PlaintextParser.from_string(text, Tokenizer("english"))
                 summarizer = LexRankSummarizer()
                 summary_sentences = summarizer(parser.document, sentence_count)
@@ -190,23 +190,24 @@ def scrape_amazon_tv(url):
             result["AI Generated Customer Review Summary"] = summary if summary else reviews_text[:300] + "..."
         except Exception as e:
             print("Error during text summarization:", e)
+          
             result["AI Generated Customer Review Summary"] = reviews_text[:300] + "..."
     else:
         print("No reviews found")
         result["AI Generated Customer Review Summary"] = None
-    # --- End new logic ---
 
-    # --- New post-processing for better formatting ---
+    #  improves formatting of extracted data
     if result.get("About this item"):
+     
         result["About this item"] = [part.strip() for part in result["About this item"].split("|") if part.strip()]
     if result.get("Product Information"):
+       
         result["Product Information"] = [item.strip() for item in result["Product Information"].split("\u200e") if item.strip()]
-    # --- End post-processing ---
 
     return result
 
 if __name__ == "__main__":
-    # Use '--selenium' flag to trigger the Selenium scraper
+   
     if len(sys.argv) >= 2 and "--selenium" in sys.argv:
         urls = [arg for arg in sys.argv[1:] if arg != "--selenium"]
         if not urls and os.path.exists("url.txt"):
@@ -224,4 +225,5 @@ if __name__ == "__main__":
             urls = ["https://www.amazon.in/TOSHIBA-inches-Ready-Android-32V35MP/dp/B0C4DPCKDJ?pd_rd_w=s3CiD&content-id=amzn1.sym.b5387062-d66f-4264-a2b3-7498b12700ed&pf_rd_p=b5387062-d66f-4264-a2b3-7498b12700ed&pf_rd_r=B5THG74DVQA2VJBMTVKR&pd_rd_wg=rc0g2&pd_rd_r=e1360cdd-fad0-4379-b094-98aea6ceeb32&pd_rd_i=B0C4DPCKDJ"]
         for url in urls:
             data = scrape_amazon_tv(url)
+            # This line would print the formatted JSON output if uncommented
             # print(json.dumps(data, indent=4))
